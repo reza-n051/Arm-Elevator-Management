@@ -21,6 +21,10 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "stdlib.h"
+#include "string.h"
+#include "ctype.h"
+#include "math.h"
 
 /* USER CODE END Includes */
 
@@ -75,7 +79,8 @@ void PWM_Change_Tone(uint16_t pwm_freq, uint16_t volume);
 void PWM_Pause();
 void Change_Melody(const Tone* melody , const uint32_t wholenote,uint16_t melody_len);
 void Update_Melody();
-
+//elevator admin commands
+char* Procces_Command(char* string);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -529,12 +534,65 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
 }
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 	if(htim->Instance == TIM4){
-
+		if(ssEnableDigit == 1){
+			HAL_GPIO_WritePin(GPIOD, GPIO_PIN_2 | GPIO_PIN_3 | GPIO_PIN_4, 1);
+			HAL_GPIO_WritePin(GPIOD, GPIO_PIN_1, 0);
+			intToBcd(inputFloor);
+			ssEnableDigit = 4;
+		  }else if(ssEnableDigit == 4){
+			HAL_GPIO_WritePin(GPIOD, GPIO_PIN_2 | GPIO_PIN_3 | GPIO_PIN_1, 1);
+			HAL_GPIO_WritePin(GPIOD, GPIO_PIN_4, 0);
+			intToBcd(currentFloor);
+			ssEnableDigit = 1;
+		}
 	}
 }
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart){
 	if(huart->Instance == USART3){
+		if(data != 0x0A){
+			uart_buffer[uart_buffer_pos] = data;
+			uart_buffer_pos += 1;
+		}else{
+			uart_buffer[uart_buffer_pos] = '\0';
+			/*
+			 * ADMIN#{1234}
+			 *
+			 */
+			int str_len = uart_buffer_pos+2; //if user enter {aa} str_len is 4 because {a + a + 0x0A + \0}
+			char input[str_len];
+			for(int i=0;i<str_len;i++){
+				input[i] = 0;
+			}
+			for (int i = 0; i < str_len; i++) {
+				input[i] = toupper(buffer[i]); //for example if user enter ADMIN it changes to ADMIN for next processes
+			}
+			char* string = input;
+			if(isAdminLogin == 0){
+				//if admin is not login
+				if(strcmp(string,"ADMIN#{1234}") == 0){
+					char* response = "You Login Successfully !!!";
+					HAL_UART_Transmit(&huart3, response, sizeof(*response), 1000);
+					isAdminLogin = 1;
+				}else{
+					char* response = "You Should Login First !!!";
+					HAL_UART_Transmit(&huart3, response, sizeof(*response), 1000);
+				}
+			}else{
+				if(strcmp(string,"ADMIN#{1234}") == 0){
+					char* response = "You Are Already Logged In !!!";
+					HAL_UART_Transmit(&huart3, response, sizeof(*response), 1000);
+					isAdminLogin = 1;
+				}else if(strcmp(string,"SET MAX LEVEL []") == 0){
 
+				}
+			}
+
+			if(strcmp(string,"ADMIN#{1234}") == 0){
+				isAdminLogin = 1;
+			}
+
+		}
+		HAL_UART_Receive_IT(&huart3, &uart_data, sizeof(data));
 	}
 }
 void PWM_Play(){
@@ -580,6 +638,325 @@ void Update_Melody(){
 	}
 }
 
+void intToBcd(int num){
+  x1 = num & 1; //PA4 --> A  0001  kam arzesh
+  x2 = num & 2; //PA3 --> B
+  x3 = num & 4; //PA2 --> C
+  x4 = num & 8; //PA1 --> D 1000 ba arzesh
+  if(x1>0) x1=1;
+  if(x2>0) x2=1;
+  if(x3>0) x3=1;
+  if(x4>0) x4=1;
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, x4);
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_2, x3);
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_3, x2);
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, x1);
+}
+
+
+
+/*
+ * ERR Codes:
+ * -1 = wrong command or parameter
+ * -2 = wrong command
+ * -3 = wrong parameter
+ */
+char* Process_Command(char* string){
+	if(strstr(string,"SET MAX LEVEL") != NULL){
+		int* p = Get_Parameter_In_Command_SML(string);
+
+	}else if(strstr(string,"SET WAIT") != NULL){
+		char* p = Get_Parameter_In_Command(string," ");
+		char* r;
+		int wait_time = strtol(p, &r, 10);
+	}else if(strstr(string,"SET LED") != NULL){
+		char* p = Get_Parameter_In_Command(string," ");
+		if(strcmp(p,"ON") == 0){
+
+		}else if(strcmp(p,"OFF") == 0){
+
+		}
+	}else if(strstr(string,"SET LEVEL") != NULL){
+		char* p = Get_Parameter_In_Command(string," ");
+		char* r;
+		int current_floor = strtol(p, &r, 10);
+	}else if(strstr(string,"TEST#") != NULL){
+		char* p = Get_Parameter_In_Command(string,"#");
+
+	}else if(strstr(string,"START") != NULL){
+
+	}else if(strstr(string,"ADMIN#") != NULL){
+		char* p = Get_Parameter_In_Command(string,"#");
+	}else{
+
+	}
+}
+
+int* Get_Parameter_In_Command_START(char* string,int* res_out){
+	//START
+	int res[1] = {0};
+	if(strcmp(string,"START") == 0 ){
+		res[0] = 0;
+	}else{
+		res[0] = -1;
+	}
+	return res;
+}
+int* Get_Parameter_In_Command_AP(char* string,int* res_out){
+	//ADMIN PASS => ADMIN#{1234}
+	char copy_string[strlen(string)];
+	strcpy(copy_string,string);
+	int queu[5] = {-1};
+	int* queue = queu;
+	char* command_string_parts[2] = {"",""};
+	int i = 0;
+	char* res = strtok(copy_string,"#");
+	while(res != NULL && i < 2){
+		command_string_parts[i]=res;
+		i += 1;
+		res = strtok(NULL,"#");
+	}
+	if(
+			res != NULL ||
+			(
+				strcmp(command_string_parts[0],"ADMIN") !=0
+			)
+	){
+		queue[0]=-2;
+		return queue;
+	}
+	if(strcmp(command_string_parts[1],"1234") !=0){
+		queue[0]=-3;
+		return queue;
+	}
+	queue[0] = 0;
+	return queue;
+
+}
+
+void Get_Parameter_In_Command_SML(char* string,int* res_out){
+	//SML => SET MAX LEVEL
+	char copy_string[strlen(string)];
+	strcpy(copy_string,string);
+	int res_temp[1] = {-1};
+	int* max_level = res_temp;
+	char* command_string_parts[4] = {"","","",""};
+	int i = 0;
+	char* res = strtok(copy_string," ");
+	while(res != NULL && i < 4){
+		//Set Max Level 2 => if we split string with space we have 3 substrings.
+		command_string_parts[i] = res;
+		i += 1;
+		res = strtok(NULL," ");
+	}
+	if(
+			res != NULL ||
+			(
+				strcmp(command_string_parts[0],"SET") !=0
+				|| strcmp(command_string_parts[1],"MAX") !=0
+				|| strcmp(command_string_parts[2],"LEVEL") !=0
+			)
+	){
+		max_level[0] = -2;
+		return max_level;
+	}
+	int string_ml_len = strlen(command_string_parts[3]);
+	if(string_ml_len != 1){
+		max_level[0] = -3;
+		return max_level;
+	}
+	char string_ml[1];
+	int number_wt[1];
+	strcpy(string_ml,command_string_parts[3]);
+
+	int ascii_char = (int) (string_ml[0]);
+	if(ascii_char < 48 || ascii_char > 57){
+		max_level[0] = -1;
+		return max_level;
+	}else{
+		number_wt[j] = ascii_char - 48;
+	}
+	return number_wt;
+
+}
+void Get_Parameter_In_Command_SLED(char* string,int* res_out){
+	//SLED => SET LED
+	char copy_string[strlen(string)];
+	strcpy(copy_string,string);
+	int res_temp[1] = {-1};
+	int* level = res_temp;
+	char* command_string_parts[3] = {"","",""};
+	int i = 0;
+	char* res = strtok(copy_string," ");
+	while(res != NULL && i < 3){
+		//Set Max Level 2 => if we split string with space we have 3 substrings.
+		command_string_parts[i] = res;
+		i += 1;
+		res = strtok(NULL,copy_string);
+	}
+	if(
+			res != NULL ||
+			(
+				strcmp(command_string_parts[0],"SET") !=0
+				|| strcmp(command_string_parts[1],"LED") !=0
+			)
+	){
+		level[0] = -2;
+		return level;
+	}
+	int number_nf[1];
+	if(strcmp(command_string_parts[2],"ON") == 0){
+		number_nf[0] = 1;
+	}else if(strcmp(command_string_parts[2],"OFF") == 0){
+		number_nf[0] = 0;
+	}else{
+		level[0] = -3;
+		return level;
+	}
+	return number_nf;
+
+}
+
+int* Get_Parameter_In_Command_SL(char* string){
+	//SL => SET LEVEL
+	char copy_string[strlen(string)];
+	strcpy(copy_string,string);
+	int res_temp[1] = {-1};
+	int* level = res_temp;
+	char* command_string_parts[3] = {"","",""};
+	int i = 0;
+	char* res = strtok(copy_string," ");
+	while(res != NULL && i < 3){
+		//Set Max Level 2 => if we split string with space we have 3 substrings.
+		command_string_parts[i] = res;
+		i += 1;
+		res = strtok(NULL,copy_string);
+	}
+	if(
+			res != NULL ||
+			(
+				strcmp(command_string_parts[0],"SET") !=0
+				|| strcmp(command_string_parts[1],"LEVEL") !=0
+			)
+	){
+		level[0] = -2;
+		return level;
+	}
+	int string_level_len = strlen(command_string_parts[2]);
+	if(string_level_len != 1){
+		level[0] = -3;
+		return level;
+	}
+	char string_level[1];
+	int number_level[1];
+	strcpy(string_ml,command_string_parts[2]);
+	int ascii_char = (int) (string_level[0]);
+	if(ascii_char < 48 || ascii_char > 57){
+		max_level[0] = -1;
+		return max_level;
+	}else{
+		number_level[j] = ascii_char - 48;
+	}
+	return number_level;
+
+}
+
+int* Get_Parameter_In_Command_SWT(char* string){
+	//SML => SET Wait
+	char copy_string[strlen(string)];
+	strcpy(copy_string,string);
+	int res_temp[1] = {-1};
+	int* wait_time = res_temp;
+	char* command_string_parts[3] = {"","",""};
+	int i = 0;
+	char* res = strtok(copy_string," ");
+	while(res != NULL && i < 3){
+		//Set Wait 200 => if we split string with space we have 3 substrings.
+		command_string_parts[i] = res;
+		i += 1;
+		res = strtok(NULL,copy_string);
+	}
+	if(
+			res != NULL ||
+			(
+				strcmp(command_string_parts[0],"SET") !=0
+				|| strcmp(command_string_parts[1],"WAIT") !=0
+			)
+	){
+		wait_time[0] = -2;
+		return wait_time;
+	}
+	int string_wt_len = strlen(command_string_parts[2]);
+	char string_wt[string_wt_len];
+	int number_wt[string_wt_len];
+	strcpy(string_wt,command_string_parts[2]);
+	for(int j=0;j<string_wt_len;j++){
+		int ascii_char = (int) (string_wt[j]);
+		if(ascii_char < 48 || ascii_char > 57){
+			wait_time[0] = -1;
+			return wait_time;
+		}else{
+			number_wt[j] = ascii_char - 48;
+		}
+	}
+	if(number_wt[string_wt_len-1] !=0 || number_wt[string_wt_len-2] !=0){
+		wait_time[0] = -3;
+		return wait_time;
+	}
+	int wt[]={0};
+	for(int j=0;j<string_wt_len;j++){
+		int tavan = string_wt_len - 1 - j;
+		wt[0] += pow(10,tavan);
+	}
+	return wt;
+}
+int* Get_Parameter_In_Command_Test(char* string){
+	char copy_string[strlen(string)];
+	strcpy(copy_string,string);
+	int queu[5] = {-1};
+	int* queue = queu;
+	char* command_string_parts[2] = {"",""};
+	int i = 0;
+	char* res = strtok(copy_string,"#");
+	while(res != NULL && i < 2){
+		command_string_parts[i]=res;
+		i += 1;
+		res = strtok(NULL,copy_string);
+	}
+	if(
+			res != NULL ||
+			(
+				strcmp(command_string_parts[0],"TEST") !=0
+			)
+	){
+		queue[0]=-2;
+		return queue;
+	}
+	int string_queue_len = strlen(command_string_parts[1]);
+	char string_queue[string_queue_len];
+	strcpy(string_queue,command_string_parts[1]);
+	if(string_queue[0] == '\n' || string_queue[0] == ' '){
+		return queue;
+	}
+	i = 0;
+	while(string_queue[i] != '\n' && i < string_queue_len){
+		if(isdigit(string_queue[i])){
+    		queue[i] = (int) (string_queue[i]) - 48;
+		}else{
+		    queue[0] = -3;
+		}
+		i++;
+	}
+	return queue;
+}
+
+char* Get_Parameter_In_Command(char* string,char* delim){
+	char* res =strtok(string, delim);
+	while(res != NULL){
+		res = strtok(NULL,delim);
+	}
+	return strtok(res," ");
+}
 /* USER CODE END 4 */
 
 /**
