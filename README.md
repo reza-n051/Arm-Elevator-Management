@@ -1,11 +1,4 @@
 # Arm-Elevator-Management
-ARM microcontroller mini project @ FUM
-
-## developers
-
-Ahmadreza Hafizi
-
-Reza Nasiri
 
 ## requirements and tools
 
